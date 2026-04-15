@@ -91,7 +91,9 @@ vim.g.mapleader = ' '
 vim.g.maplocalleader = ' '
 
 -- Set to true if you have a Nerd Font installed and selected in the terminal
-vim.g.have_nerd_font = false
+vim.g.have_nerd_font = true
+vim.g.python3_host_prog = vim.fn.expand '~/.venvs/nvim/bin/python'
+vim.g.loaded_perl_provider = 0
 
 -- [[ Setting options ]]
 -- See `:help vim.o`
