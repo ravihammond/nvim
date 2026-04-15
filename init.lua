@@ -963,9 +963,11 @@ require('lazy').setup({
       lazy = '💤 ',
     },
   },
-  -- Disable lazy.nvim's built-in change detection — we handle reloading
-  -- ourselves below with a proper uv file watcher + full module cache clear.
-  change_detection = { enabled = false },
+  -- Keep lazy.nvim's spec change-detection running silently. Its internal
+  -- Plugin.load() re-parses specs and fires the User LazyReload event, which
+  -- our handler (below) uses to auto-install new plugins and reload changed
+  -- plugin configs. We suppress its own notification since we show our own.
+  change_detection = { enabled = true, notify = false },
 })
 
 -- [[ Config Live Reload ]]
@@ -994,57 +996,111 @@ if _G._config_watcher then
   _G._config_watcher = nil
 end
 
---- Reload the entire Neovim config from disk.
--- Clears both Neovim's compiled bytecode cache (vim.loader) and Lua's module
--- cache (package.loaded) before re-executing init.lua, so every require()
--- inside the config picks up the latest version of the file.
+--- Reload the Neovim config from disk.
 --
--- What gets picked up immediately:
---   ✓ vim.o.* options, vim.g.* globals
---   ✓ Keymaps (new/changed bindings apply right away)
---   ✓ Autocmds (safe if they use named augroups with clear=true)
---   ✓ Colorscheme changes
+-- Phase 1 (immediate, ~300 ms): options, keymaps, globals, colorscheme.
+-- Phase 2 (within ~2 s): plugin spec re-parse via lazy.nvim's change_detection,
+--   followed by auto-install of new plugins and config() reload for changed ones.
 --
--- What requires a full restart:
---   ✗ Adding/removing plugins (needs :Lazy install / restart)
---   ✗ Changes to plugin config() functions for already-loaded plugins
+-- Full reload matrix:
+--   ✓ vim.o.* / vim.g.* options & globals  — immediate
+--   ✓ Keymaps                               — immediate
+--   ✓ Colorscheme changes                   — immediate
+--   ✓ Adding a new plugin to the spec       — auto-installs within ~2 s
+--   ✓ Changes to plugin opts / config()     — reloads within ~2 s
+--   ✗ Removing a plugin                     — run :Lazy clean manually
 _G.ReloadConfig = function()
   local config = vim.fn.stdpath 'config'
 
-  -- 1. Clear Neovim's compiled bytecode cache (Neovim 0.9+).
-  --    Without this, dofile() may run stale bytecode even if the source changed.
+  -- 1. Clear Neovim's compiled bytecode cache so dofile() reads fresh source.
   if vim.loader then
     vim.loader.reset(config)
   end
 
-  -- 2. Clear Lua's module cache for all user config modules so that any
-  --    require() inside init.lua re-executes the updated files.
+  -- 2. Clear Lua's module cache for all user config modules.
+  --    This also ensures lazy.nvim's Plugin.load() (step 3) re-requires spec
+  --    files from disk rather than serving stale cached versions.
   for mod in pairs(package.loaded) do
     if mod:match '^kickstart' or mod:match '^custom' or mod:match '^config' then
       package.loaded[mod] = nil
     end
   end
 
-  -- 3. Temporarily stub out lazy.setup so that re-executing init.lua does not
-  --    trigger lazy.nvim's "re-sourcing not supported" warning. lazy is already
-  --    initialised; we only need the options/keymaps sections of init.lua to
-  --    re-run, not the plugin installation machinery.
+  -- 3. Re-apply options / keymaps / autocmds from init.lua.
+  --    lazy.setup is stubbed to a silent no-op — it is already initialised.
+  --    Plugin spec re-parsing is done in step 4 via a dedicated API so it
+  --    bypasses lazy's "re-sourcing not supported" guard cleanly.
   local lazy = require 'lazy'
-  local _orig_lazy_setup = lazy.setup
+  local _orig_setup = lazy.setup
   lazy.setup = function() end
-
   local ok, err = pcall(dofile, config .. '/init.lua')
-
-  -- Always restore, even on error.
-  lazy.setup = _orig_lazy_setup
-
+  lazy.setup = _orig_setup
   if not ok then
     vim.notify('Config reload failed:\n' .. tostring(err), vim.log.levels.ERROR, { title = 'nvim config' })
     return
   end
 
+  -- 4. Re-parse plugin specs immediately using the same internal function that
+  --    lazy.nvim's change_detection timer calls.  After this:
+  --      • Newly-added plugins appear as  plugin._.installed == false
+  --      • Changed-spec plugins are marked plugin._.dirty == true
+  --    We then fire the LazyReload User event so our autocmd handler below
+  --    installs new plugins and reloads changed ones without waiting for the
+  --    2-second poll cycle.
+  local spec_ok, LazyPlugin = pcall(require, 'lazy.core.plugin')
+  if spec_ok and type(LazyPlugin.load) == 'function' then
+    if pcall(LazyPlugin.load) then
+      vim.api.nvim_exec_autocmds('User', { pattern = 'LazyReload', modeline = false })
+    end
+  end
+  -- (Fallback: if the internal API above is unavailable, lazy.nvim's own
+  --  change_detection timer will fire LazyReload within ~2 seconds anyway.)
+
   vim.notify('Config reloaded', vim.log.levels.INFO, { title = 'nvim config' })
 end
+
+-- LazyReload handler — runs after lazy.nvim re-parses plugin specs (either via
+-- our direct Plugin.load() call above or the 2-second change_detection timer).
+-- Installs any new plugins and reloads config() for plugins whose spec changed.
+vim.api.nvim_create_autocmd('User', {
+  pattern = 'LazyReload',
+  group = vim.api.nvim_create_augroup('NvimConfigLazyReload', { clear = true }),
+  callback = function()
+    vim.schedule(function()
+      local Config = require 'lazy.core.config'
+      local to_install = {}
+      local to_reload = {}
+
+      for name, plugin in pairs(Config.plugins or {}) do
+        if plugin._ then
+          if not plugin._.installed then
+            -- Brand-new plugin: needs cloning + config() run
+            table.insert(to_install, name)
+          elseif plugin._.dirty then
+            -- Existing plugin whose spec/opts changed: re-run config()
+            -- Most simple plugins (UI, keymaps, options) handle this fine.
+            -- Complex plugins (LSP servers, treesitter) may not; pcall catches
+            -- any errors so a bad reload never crashes a running instance.
+            table.insert(to_reload, name)
+          end
+        end
+      end
+
+      if #to_install > 0 then
+        require('lazy').install { wait = false }
+        vim.notify(
+          ('Installing %d new plugin(s):\n%s'):format(#to_install, table.concat(to_install, ', ')),
+          vim.log.levels.INFO,
+          { title = 'nvim config' }
+        )
+      end
+
+      for _, name in ipairs(to_reload) do
+        pcall(require('lazy').reload, name)
+      end
+    end)
+  end,
+})
 
 -- Manual reload keymap: press <leader>sv to reload at any time.
 vim.keymap.set('n', '<leader>sv', _G.ReloadConfig, { desc = '[S]ource [V]im config' })
