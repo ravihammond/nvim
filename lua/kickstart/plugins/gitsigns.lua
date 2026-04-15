@@ -10,6 +10,13 @@ return {
   ---@type Gitsigns.Config
   ---@diagnostic disable-next-line: missing-fields
   opts = {
+    signs = {
+      add = { text = '+' }, ---@diagnostic disable-line: missing-fields
+      change = { text = '~' }, ---@diagnostic disable-line: missing-fields
+      delete = { text = '_' }, ---@diagnostic disable-line: missing-fields
+      topdelete = { text = '‾' }, ---@diagnostic disable-line: missing-fields
+      changedelete = { text = '~' }, ---@diagnostic disable-line: missing-fields
+    },
     on_attach = function(bufnr)
       local gitsigns = require 'gitsigns'
 
@@ -61,3 +68,5 @@ return {
     end,
   },
 }
+
+-- vim: ts=2 sts=2 sw=2 et
