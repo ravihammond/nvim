@@ -70,12 +70,6 @@ Kickstart Guide:
     These are hints about where to find more information about the relevant settings,
     plugins or Neovim features used in Kickstart.
 
-   NOTE: Look for lines like this
-
-    Throughout the file. These are for you, the reader, to help you understand what is happening.
-    Feel free to delete them once you know what you're doing, but they should serve as a guide
-    for when you are first encountering a few different constructs in your Neovim config.
-
 If you experience any errors while trying to install kickstart, run `:checkhealth` for more info.
 
 I hope you enjoy your Neovim journey,
@@ -86,7 +80,6 @@ P.S. You can delete this when you're done too. It's your config now! :)
 
 -- Set <space> as the leader key
 -- See `:help mapleader`
---  NOTE: Must happen before plugins are loaded (otherwise wrong leader will be used)
 vim.g.mapleader = ' '
 vim.g.maplocalleader = ' '
 
@@ -100,11 +93,9 @@ vim.g.loaded_perl_provider = 0
 -- NOTE: You can change these options as you wish!
 --  For more options, you can see `:help option-list`
 
--- Make line numbers default
+-- line numbers
 vim.o.number = true
--- You can also add relative line numbers, to help with jumping.
---  Experiment for yourself to see if you like it!
--- vim.o.relativenumber = true
+vim.o.relativenumber = true
 
 -- Enable mouse mode, can be useful for resizing splits for example!
 vim.o.mouse = 'a'
@@ -972,7 +963,120 @@ require('lazy').setup({
       lazy = '💤 ',
     },
   },
+  -- Disable lazy.nvim's built-in change detection — we handle reloading
+  -- ourselves below with a proper uv file watcher + full module cache clear.
+  change_detection = { enabled = false },
 })
+
+-- [[ Config Live Reload ]]
+--
+-- Watches ~/.config/nvim/ for ANY write — whether you save a file from inside
+-- this Neovim session, or an external tool (Claude Code, Codex, a shell
+-- script, another editor) writes to the directory.
+--
+-- Every running Neovim instance sets up its own watcher independently, so ALL
+-- open instances reload simultaneously when a change lands.
+--
+-- Usage:
+--   - Just save any .lua file in the config directory — reload is automatic.
+--   - <leader>sv to force a manual reload at any time.
+
+-- Stop any watcher / debounce timer that was started by a previous reload
+-- cycle. Without this guard, each reload would spawn an additional watcher.
+if _G._config_reload_timer then
+  _G._config_reload_timer:stop()
+  _G._config_reload_timer:close()
+  _G._config_reload_timer = nil
+end
+if _G._config_watcher then
+  _G._config_watcher:stop()
+  _G._config_watcher:close()
+  _G._config_watcher = nil
+end
+
+--- Reload the entire Neovim config from disk.
+-- Clears both Neovim's compiled bytecode cache (vim.loader) and Lua's module
+-- cache (package.loaded) before re-executing init.lua, so every require()
+-- inside the config picks up the latest version of the file.
+--
+-- What gets picked up immediately:
+--   ✓ vim.o.* options, vim.g.* globals
+--   ✓ Keymaps (new/changed bindings apply right away)
+--   ✓ Autocmds (safe if they use named augroups with clear=true)
+--   ✓ Colorscheme changes
+--
+-- What requires a full restart:
+--   ✗ Adding/removing plugins (needs :Lazy install / restart)
+--   ✗ Changes to plugin config() functions for already-loaded plugins
+_G.ReloadConfig = function()
+  local config = vim.fn.stdpath 'config'
+
+  -- 1. Clear Neovim's compiled bytecode cache (Neovim 0.9+).
+  --    Without this, dofile() may run stale bytecode even if the source changed.
+  if vim.loader then
+    vim.loader.reset(config)
+  end
+
+  -- 2. Clear Lua's module cache for all user config modules so that any
+  --    require() inside init.lua re-executes the updated files.
+  for mod in pairs(package.loaded) do
+    if mod:match '^kickstart' or mod:match '^custom' or mod:match '^config' then
+      package.loaded[mod] = nil
+    end
+  end
+
+  -- 3. Temporarily stub out lazy.setup so that re-executing init.lua does not
+  --    trigger lazy.nvim's "re-sourcing not supported" warning. lazy is already
+  --    initialised; we only need the options/keymaps sections of init.lua to
+  --    re-run, not the plugin installation machinery.
+  local lazy = require 'lazy'
+  local _orig_lazy_setup = lazy.setup
+  lazy.setup = function() end
+
+  local ok, err = pcall(dofile, config .. '/init.lua')
+
+  -- Always restore, even on error.
+  lazy.setup = _orig_lazy_setup
+
+  if not ok then
+    vim.notify('Config reload failed:\n' .. tostring(err), vim.log.levels.ERROR, { title = 'nvim config' })
+    return
+  end
+
+  vim.notify('Config reloaded', vim.log.levels.INFO, { title = 'nvim config' })
+end
+
+-- Manual reload keymap: press <leader>sv to reload at any time.
+vim.keymap.set('n', '<leader>sv', _G.ReloadConfig, { desc = '[S]ource [V]im config' })
+
+-- Start the file watcher.
+-- vim.uv.new_fs_event() uses libuv's native OS file-system event API
+-- (FSEvents on macOS, inotify on Linux). It fires for writes made by ANY
+-- process — nvim itself, Claude Code, Codex, git, etc.
+_G._config_watcher = vim.uv.new_fs_event()
+_G._config_watcher:start(
+  vim.fn.stdpath 'config',
+  { recursive = true },
+  vim.schedule_wrap(function(err, filename, _events)
+    if err or not filename then return end
+    -- Ignore non-Lua files (lockfile updates, docs, etc.)
+    if not filename:match '%.lua$' then return end
+
+    -- Debounce: when an external tool writes several files in quick succession
+    -- (Claude Code patching multiple plugin files, for example), coalesce all
+    -- of those into a single reload fired 300 ms after the last change.
+    if _G._config_reload_timer then
+      _G._config_reload_timer:stop()
+      _G._config_reload_timer:close()
+    end
+    _G._config_reload_timer = vim.uv.new_timer()
+    _G._config_reload_timer:start(300, 0, vim.schedule_wrap(function()
+      _G._config_reload_timer:close()
+      _G._config_reload_timer = nil
+      _G.ReloadConfig()
+    end))
+  end)
+)
 
 -- The line beneath this is called `modeline`. See `:help modeline`
 -- vim: ts=2 sts=2 sw=2 et
