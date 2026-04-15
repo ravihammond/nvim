@@ -51,7 +51,7 @@ Your old LazyVim config was almost entirely default settings — the custom file
 
 - **Colorscheme**: vim-monokai-tasty (a dark Monokai-style theme)
 - **auto-session**: a plugin that saved and restored your editing sessions
-- **LazyVim extras enabled**: GitHub Copilot, Markdown tooling, TOML language support, JSON language support
+- **LazyVim extras enabled**: GitHub opilot, Markdown tooling, TOML language support, JSON language support
 
 ### Old Plugin List (from lazy-lock.json)
 
@@ -627,21 +627,21 @@ The stack has three parts:
 ├── docs/
 │   └── nvim-audit-2025.md
 └── lua/
-    ├── kickstart/
-    │   └── plugins/      ← optional kickstart plugins (already split out here)
+    ├── core/
+    │   └── plugins/      ← optional core plugins (already split out here)
     └── custom/
         └── plugins/      ← where you put your own extra plugins
 ```
 
 ### Option A: Stay single-file (recommended for now) ✅ Current approach
 
-Keep everything in `init.lua`. This is exactly what Kickstart is designed for — the whole point is that you can read top-to-bottom and understand everything.
+Keep everything in `init.lua`. This is exactly what this config style is designed for — the whole point is that you can read top-to-bottom and understand everything.
 
 **When to split**: Once `init.lua` grows past ~1200 lines and scrolling through it becomes genuinely annoying.
 
-### Option B: Kickstart modular split (natural next step)
+### Option B: Core modular split (natural next step)
 
-The official "grown-up" version of Kickstart: `dam9000/kickstart-modular.nvim`. Instead of one giant file, each logical section gets its own file:
+The modular version of this approach uses the same idea: each logical section gets its own file:
 
 ```
 ~/.config/nvim/

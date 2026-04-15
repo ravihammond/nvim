@@ -4,6 +4,65 @@ return {
   'nvim-telescope/telescope.nvim',
   enabled = true,
   event = 'VimEnter',
+  keys = {
+    {
+      '<leader><space>',
+      function()
+        local start = vim.api.nvim_buf_get_name(0)
+        local path = start ~= '' and start or vim.fn.getcwd()
+        local root = vim.fs.root(path, { '.git' }) or vim.fn.getcwd()
+        require('telescope.builtin').find_files { cwd = root }
+      end,
+      desc = 'Find Files (Root Dir)',
+    },
+    {
+      '<leader>fb',
+      function() require('telescope.builtin').buffers() end,
+      desc = 'Buffers',
+    },
+    {
+      '<leader>fc',
+      function() require('telescope.builtin').find_files { cwd = vim.fn.stdpath 'config' } end,
+      desc = 'Find Config File',
+    },
+    {
+      '<leader>ff',
+      function()
+        local start = vim.api.nvim_buf_get_name(0)
+        local path = start ~= '' and start or vim.fn.getcwd()
+        local root = vim.fs.root(path, { '.git' }) or vim.fn.getcwd()
+        require('telescope.builtin').find_files { cwd = root }
+      end,
+      desc = 'Find Files (Root Dir)',
+    },
+    {
+      '<leader>fF',
+      function() require('telescope.builtin').find_files { cwd = vim.fn.getcwd() } end,
+      desc = 'Find Files (cwd)',
+    },
+    {
+      '<leader>fg',
+      function()
+        local start = vim.api.nvim_buf_get_name(0)
+        local path = start ~= '' and start or vim.fn.getcwd()
+        local root = vim.fs.root(path, { '.git' }) or vim.fn.getcwd()
+        local builtin = require 'telescope.builtin'
+        local ok = pcall(builtin.git_files, { cwd = root, show_untracked = true })
+        if not ok then builtin.find_files { cwd = root } end
+      end,
+      desc = 'Find Files (git-files)',
+    },
+    {
+      '<leader>fr',
+      function() require('telescope.builtin').oldfiles() end,
+      desc = 'Recent',
+    },
+    {
+      '<leader>fR',
+      function() require('telescope.builtin').oldfiles { cwd_only = true } end,
+      desc = 'Recent (cwd)',
+    },
+  },
   dependencies = {
     'nvim-lua/plenary.nvim',
     {
@@ -25,7 +84,6 @@ return {
     pcall(require('telescope').load_extension, 'ui-select')
 
     local builtin = require 'telescope.builtin'
-    vim.keymap.set('n', '<leader>f', builtin.find_files, { desc = '[F]ind files' })
     vim.keymap.set('n', '<leader>sh', builtin.help_tags, { desc = '[S]earch [H]elp' })
     vim.keymap.set('n', '<leader>sk', builtin.keymaps, { desc = '[S]earch [K]eymaps' })
     vim.keymap.set('n', '<leader>sf', builtin.find_files, { desc = '[S]earch [F]iles' })
@@ -70,7 +128,6 @@ return {
       end,
       { desc = '[S]earch [/] in Open Files' }
     )
-
     vim.keymap.set('n', '<leader>sn', function() builtin.find_files { cwd = vim.fn.stdpath 'config' } end, { desc = '[S]earch [N]eovim files' })
   end,
 }

@@ -17,7 +17,7 @@ return {
   end,
   keys = {
     {
-      '<leader>fe',
+      '<leader>e',
       function()
         local current = vim.api.nvim_buf_get_name(0)
         local start = current ~= '' and current or vim.fn.getcwd()
@@ -33,7 +33,7 @@ return {
       silent = true,
     },
     {
-      '<leader>fE',
+      '<leader>E',
       function()
         require('neo-tree.command').execute {
           toggle = true,
@@ -44,8 +44,6 @@ return {
       desc = 'Explorer NeoTree (cwd)',
       silent = true,
     },
-    { '<leader>e', '<leader>fe', desc = 'Explorer NeoTree (Root Dir)', remap = true },
-    { '<leader>E', '<leader>fE', desc = 'Explorer NeoTree (cwd)', remap = true },
     {
       '<leader>ge',
       function()

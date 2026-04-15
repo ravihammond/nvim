@@ -11,29 +11,29 @@
 -- NOTE: Here is where you install your plugins.
 require('lazy').setup({
   { 'NMAC427/guess-indent.nvim', opts = {} },
-  require 'kickstart.plugins.devicons',
-  require 'kickstart.plugins.gitsigns',
-  require 'kickstart.plugins.which-key',
-  require 'kickstart.plugins.telescope',
-  require 'kickstart.plugins.lspconfig',
-  require 'kickstart.plugins.conform',
-  require 'kickstart.plugins.blink-cmp',
-  require 'kickstart.plugins.monokai',
-  require 'kickstart.plugins.tokyonight',
-  require 'kickstart.plugins.todo-comments',
-  require 'kickstart.plugins.mini',
-  require 'kickstart.plugins.treesitter',
+  require 'core.plugins.devicons',
+  require 'core.plugins.gitsigns',
+  require 'core.plugins.which-key',
+  require 'core.plugins.telescope',
+  require 'core.plugins.lspconfig',
+  require 'core.plugins.conform',
+  require 'core.plugins.blink-cmp',
+  require 'core.plugins.monokai',
+  require 'core.plugins.tokyonight',
+  require 'core.plugins.todo-comments',
+  require 'core.plugins.mini',
+  require 'core.plugins.treesitter',
 
   -- NOTE: Next step on your Neovim journey: Add/Configure additional plugins for Kickstart
   --
   --  Here are some example plugins that I've included in the Kickstart repository.
   --  Uncomment any of the lines below to enable them (you will need to restart nvim).
   --
-  -- require 'kickstart.plugins.debug',
-  -- require 'kickstart.plugins.indent_line',
-  -- require 'kickstart.plugins.lint',
-  -- require 'kickstart.plugins.autopairs',
-  require 'kickstart.plugins.neo-tree',
+  -- require 'core.plugins.debug',
+  -- require 'core.plugins.indent_line',
+  -- require 'core.plugins.lint',
+  -- require 'core.plugins.autopairs',
+  require 'core.plugins.neo-tree',
 
   -- NOTE: The import below can automatically add your own plugins, configuration, etc from `lua/custom/plugins/*.lua`
   --    This is the easiest way to modularize your config.
@@ -99,7 +99,7 @@ _G.ReloadConfig = function()
 
   local bare = { options = true, keymaps = true, ['lazy-bootstrap'] = true, ['lazy-plugins'] = true }
   for mod in pairs(package.loaded) do
-    if mod:match '^kickstart' or mod:match '^custom' or bare[mod] then package.loaded[mod] = nil end
+    if mod:match '^core' or mod:match '^custom' or bare[mod] then package.loaded[mod] = nil end
   end
 
   local lazy = require 'lazy'
@@ -122,7 +122,7 @@ _G.ReloadConfig = function()
   -- Feed the captured spec into lazy's config so Plugin.load() sees new plugins
   if _captured_spec then LazyConfig.options.spec = _captured_spec end
 
-  -- Snapshot spec function refs BEFORE Plugin.load(). All kickstart modules were
+  -- Snapshot spec function refs BEFORE Plugin.load(). All core modules were
   -- cleared from package.loaded above, so Plugin.load() will re-require them —
   -- producing NEW Lua function objects. Comparing refs before/after lets us detect
   -- which plugins had their local config changed, independently of _.dirty (which
