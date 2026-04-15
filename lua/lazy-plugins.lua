@@ -11,12 +11,14 @@
 -- NOTE: Here is where you install your plugins.
 require('lazy').setup({
   { 'NMAC427/guess-indent.nvim', opts = {} },
+  require 'kickstart.plugins.devicons',
   require 'kickstart.plugins.gitsigns',
   require 'kickstart.plugins.which-key',
   require 'kickstart.plugins.telescope',
   require 'kickstart.plugins.lspconfig',
   require 'kickstart.plugins.conform',
   require 'kickstart.plugins.blink-cmp',
+  require 'kickstart.plugins.monokai',
   require 'kickstart.plugins.tokyonight',
   require 'kickstart.plugins.todo-comments',
   require 'kickstart.plugins.mini',
@@ -31,7 +33,7 @@ require('lazy').setup({
   -- require 'kickstart.plugins.indent_line',
   -- require 'kickstart.plugins.lint',
   -- require 'kickstart.plugins.autopairs',
-  -- require 'kickstart.plugins.neo-tree',
+  require 'kickstart.plugins.neo-tree',
 
   -- NOTE: The import below can automatically add your own plugins, configuration, etc from `lua/custom/plugins/*.lua`
   --    This is the easiest way to modularize your config.
@@ -102,7 +104,12 @@ _G.ReloadConfig = function()
 
   local lazy = require 'lazy'
   local _orig_setup = lazy.setup
-  lazy.setup = function() end
+  local _captured_spec = nil
+  -- Intercept lazy.setup to capture the new spec without triggering re-initialisation.
+  -- Previously this was a bare no-op, which silently discarded any newly-added plugins —
+  -- Config.options.spec was never updated, so Plugin.load() always re-processed the
+  -- original startup spec and new plugins were invisible to the install checker.
+  lazy.setup = function(spec, _opts) _captured_spec = spec end
   local ok, err = pcall(dofile, config .. '/init.lua')
   lazy.setup = _orig_setup
   if not ok then
@@ -110,9 +117,36 @@ _G.ReloadConfig = function()
     return
   end
 
+  local LazyConfig = require 'lazy.core.config'
+
+  -- Feed the captured spec into lazy's config so Plugin.load() sees new plugins
+  if _captured_spec then LazyConfig.options.spec = _captured_spec end
+
+  -- Snapshot spec function refs BEFORE Plugin.load(). All kickstart modules were
+  -- cleared from package.loaded above, so Plugin.load() will re-require them —
+  -- producing NEW Lua function objects. Comparing refs before/after lets us detect
+  -- which plugins had their local config changed, independently of _.dirty (which
+  -- only tracks git changes and would miss local file edits entirely).
+  local before = {}
+  for name, p in pairs(LazyConfig.plugins or {}) do
+    before[name] = { config = p.config, opts = p.opts, keys = p.keys, init = p.init }
+  end
+
   local spec_ok, LazyPlugin = pcall(require, 'lazy.core.plugin')
   if spec_ok and type(LazyPlugin.load) == 'function' then
-    if pcall(LazyPlugin.load) then vim.api.nvim_exec_autocmds('User', { pattern = 'LazyReload', modeline = false }) end
+    if pcall(LazyPlugin.load) then
+      -- Collect plugins whose spec function refs changed (i.e. their module was re-executed)
+      local config_changed = {}
+      for name, p in pairs(LazyConfig.plugins or {}) do
+        local b = before[name]
+        if b and (p.config ~= b.config or p.opts ~= b.opts or p.keys ~= b.keys or p.init ~= b.init) then
+          table.insert(config_changed, name)
+        end
+      end
+      _G._nvim_config_changed = config_changed
+
+      vim.api.nvim_exec_autocmds('User', { pattern = 'LazyReload', modeline = false })
+    end
   end
 
   vim.notify('Config reloaded', vim.log.levels.INFO, { title = 'nvim config' })
@@ -137,9 +171,77 @@ vim.api.nvim_create_autocmd('User', {
         end
       end
 
+      -- Merge in plugins whose local config files changed (detected by comparing
+      -- spec function refs before/after Plugin.load() in ReloadConfig).
+      -- _.dirty only tracks git changes so it misses local edits entirely.
+      for _, name in ipairs(_G._nvim_config_changed or {}) do
+        local already = vim.tbl_contains(to_reload, name) or vim.tbl_contains(to_install, name)
+        if not already and Config.plugins[name] then
+          table.insert(to_reload, name)
+        end
+      end
+      _G._nvim_config_changed = nil
+
       if #to_install > 0 then
-        require('lazy').install { wait = false }
-        vim.notify(('Installing %d new plugin(s):\n%s'):format(#to_install, table.concat(to_install, ', ')), vim.log.levels.INFO, { title = 'nvim config' })
+        -- Cross-process install lock — vim.fn.mkdir() is atomic on POSIX, so only
+        -- one nvim instance wins the race and runs lazy.install. Without this, two
+        -- instances both see _.installed=false (in-memory flag) and both attempt
+        -- git-clone simultaneously, causing "destination path already exists" errors.
+        local lock = vim.fn.stdpath 'data' .. '/lazy-install.lock'
+
+        -- Remove stale lock left by a previously-crashed nvim (older than 5 min).
+        local lock_stat = vim.uv.fs_stat(lock)
+        if lock_stat and os.time() - lock_stat.mtime.sec > 300 then
+          vim.fn.delete(lock, 'd')
+        end
+
+        if vim.fn.mkdir(lock) == 1 then
+          -- We won the lock: run a silent async install.
+          -- show=false → lazy never opens its UI window (kills the hit-enter prompt).
+          -- wait=false → async, nvim stays responsive while git clones happen.
+          -- We hook User LazyInstall to reload and release the lock when done.
+          local install_au = vim.api.nvim_create_augroup(
+            'NvimConfigInstallDone-' .. vim.uv.os_getpid(),
+            { clear = true }
+          )
+          vim.api.nvim_create_autocmd('User', {
+            pattern = 'LazyInstall',
+            group = install_au,
+            once = true,
+            callback = function()
+              vim.fn.delete(lock, 'd') -- release lock
+              for _, name in ipairs(to_install) do
+                pcall(require('lazy').reload, name)
+              end
+              vim.notify(
+                'Installed ' .. #to_install .. ' new plugin(s)',
+                vim.log.levels.INFO,
+                { title = 'nvim config' }
+              )
+            end,
+          })
+          require('lazy').install { show = false, wait = false }
+        else
+          -- Another instance holds the lock and is installing.
+          -- Poll until every plugin dir appears on disk, then reload into this session.
+          local attempts = 0
+          local function poll()
+            attempts = attempts + 1
+            local LazyConf = require 'lazy.core.config'
+            local still_missing = vim.tbl_filter(function(name)
+              local p = LazyConf.plugins[name]
+              return p and p.dir and not vim.uv.fs_stat(p.dir)
+            end, to_install)
+            if #still_missing == 0 or attempts >= 30 then
+              for _, name in ipairs(to_install) do
+                pcall(require('lazy').reload, name)
+              end
+            else
+              vim.defer_fn(poll, 1000)
+            end
+          end
+          vim.defer_fn(poll, 500)
+        end
       end
 
       for _, name in ipairs(to_reload) do

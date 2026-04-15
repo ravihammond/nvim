@@ -2,6 +2,8 @@ tags
 test.sh
 .luarc.json
 nvim
+nvim.log
+resize-debug.log
 
 spell/
 

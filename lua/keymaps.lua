@@ -55,6 +55,13 @@ vim.keymap.set('n', '<C-k>', '<C-w><C-k>', { desc = 'Move focus to the upper win
 -- [[ Basic Autocommands ]]
 --  See `:help lua-guide-autocommands`
 
+local function equalize_splits_across_tabs()
+  local current_tab = vim.fn.tabpagenr()
+
+  vim.cmd 'tabdo wincmd ='
+  vim.cmd('tabnext ' .. current_tab)
+end
+
 -- Highlight when yanking (copying) text
 --  Try it with `yap` in normal mode
 --  See `:help vim.hl.on_yank()`
@@ -62,6 +69,12 @@ vim.api.nvim_create_autocmd('TextYankPost', {
   desc = 'Highlight when yanking (copying) text',
   group = vim.api.nvim_create_augroup('kickstart-highlight-yank', { clear = true }),
   callback = function() vim.hl.on_yank() end,
+})
+
+vim.api.nvim_create_autocmd('VimResized', {
+  desc = 'Equalize splits after resizing Neovim',
+  group = vim.api.nvim_create_augroup('kickstart-resize-splits', { clear = true }),
+  callback = equalize_splits_across_tabs,
 })
 
 -- vim: ts=2 sts=2 sw=2 et

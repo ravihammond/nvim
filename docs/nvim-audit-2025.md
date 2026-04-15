@@ -43,7 +43,7 @@ When you add a plugin to your `init.lua`, lazy.nvim clones its repo the next tim
 
 **Source**: `~/.config/nvim.bak` — your previous setup, built on LazyVim (a Neovim distribution).
 
-### What LazyVim was
+## What LazyVim was
 
 LazyVim is an opinionated "starter kit" that pre-configures ~40 plugins for you so you don't have to set things up from scratch. Think of it like a curated bundle — you got a lot of features for free, but it was hard to know exactly what was doing what. You've now moved to **Kickstart**, which is a minimal starting point where you own and understand every line. Less magic, more control.
 
@@ -618,7 +618,7 @@ The stack has three parts:
 
 **What is "repo structure"?** How you organize the files in your `~/.config/nvim/` folder. Right now everything lives in one `init.lua` file. As you add more plugins and settings, you may want to split it up.
 
-### Your current structure
+## Your current structure
 
 ```
 ~/.config/nvim/

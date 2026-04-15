@@ -57,9 +57,10 @@ return {
       end,
     })
 
+    -- LSP servers only — do NOT put formatters/linters here.
+    -- Use actual lspconfig server names; these are passed to vim.lsp.enable() below.
     ---@type table<string, vim.lsp.Config>
     local servers = {
-      stylua = {},
       lua_ls = {
         on_init = function(client)
           if client.workspace_folders then
@@ -87,10 +88,20 @@ return {
       },
     }
 
-    local ensure_installed = vim.tbl_keys(servers or {})
-    vim.list_extend(ensure_installed, {})
+    -- Use actual mason package names (not lspconfig names) to avoid a broken
+    -- API mapping between mason-tool-installer and mason-lspconfig v2:
+    -- mason-lspconfig.get_mappings() now returns { lspconfig_to_mason = ... }
+    -- but mason-tool-installer still looks for { lspconfig_to_package = ... }.
+    -- Disabling the integration and using real package names sidesteps this entirely.
+    local mason_tools = {
+      'lua-language-server', -- mason package name for lua_ls
+      'stylua', -- formatter (not an LSP server — kept separate from `servers`)
+    }
 
-    require('mason-tool-installer').setup { ensure_installed = ensure_installed }
+    require('mason-tool-installer').setup {
+      ensure_installed = mason_tools,
+      integrations = { ['mason-lspconfig'] = false },
+    }
 
     for name, server in pairs(servers) do
       vim.lsp.config(name, server)
