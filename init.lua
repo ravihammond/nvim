@@ -889,7 +889,13 @@ require('lazy').setup({
         local has_indent_query = vim.treesitter.query.get(language, 'indents') ~= nil
 
         -- enables treesitter based indentation
-        if has_indent_query then vim.bo.indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()" end
+        -- Skip treesitter indentation for markdown: the markdown indents query is expensive
+        -- with deeply nested lists (hundreds of list items), causing lag on j/k navigation.
+        -- Vim's built-in markdown indentation is faster and sufficient.
+        local skip_ts_indent = { markdown = true, markdown_inline = true }
+        if has_indent_query and not skip_ts_indent[language] then
+          vim.bo.indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
+        end
       end
 
       local available_parsers = require('nvim-treesitter').get_available()
@@ -1013,17 +1019,13 @@ _G.ReloadConfig = function()
   local config = vim.fn.stdpath 'config'
 
   -- 1. Clear Neovim's compiled bytecode cache so dofile() reads fresh source.
-  if vim.loader then
-    vim.loader.reset(config)
-  end
+  if vim.loader then vim.loader.reset(config) end
 
   -- 2. Clear Lua's module cache for all user config modules.
   --    This also ensures lazy.nvim's Plugin.load() (step 3) re-requires spec
   --    files from disk rather than serving stale cached versions.
   for mod in pairs(package.loaded) do
-    if mod:match '^kickstart' or mod:match '^custom' or mod:match '^config' then
-      package.loaded[mod] = nil
-    end
+    if mod:match '^kickstart' or mod:match '^custom' or mod:match '^config' then package.loaded[mod] = nil end
   end
 
   -- 3. Re-apply options / keymaps / autocmds from init.lua.
@@ -1049,9 +1051,7 @@ _G.ReloadConfig = function()
   --    2-second poll cycle.
   local spec_ok, LazyPlugin = pcall(require, 'lazy.core.plugin')
   if spec_ok and type(LazyPlugin.load) == 'function' then
-    if pcall(LazyPlugin.load) then
-      vim.api.nvim_exec_autocmds('User', { pattern = 'LazyReload', modeline = false })
-    end
+    if pcall(LazyPlugin.load) then vim.api.nvim_exec_autocmds('User', { pattern = 'LazyReload', modeline = false }) end
   end
   -- (Fallback: if the internal API above is unavailable, lazy.nvim's own
   --  change_detection timer will fire LazyReload within ~2 seconds anyway.)
@@ -1088,11 +1088,7 @@ vim.api.nvim_create_autocmd('User', {
 
       if #to_install > 0 then
         require('lazy').install { wait = false }
-        vim.notify(
-          ('Installing %d new plugin(s):\n%s'):format(#to_install, table.concat(to_install, ', ')),
-          vim.log.levels.INFO,
-          { title = 'nvim config' }
-        )
+        vim.notify(('Installing %d new plugin(s):\n%s'):format(#to_install, table.concat(to_install, ', ')), vim.log.levels.INFO, { title = 'nvim config' })
       end
 
       for _, name in ipairs(to_reload) do
@@ -1126,11 +1122,15 @@ _G._config_watcher:start(
       _G._config_reload_timer:close()
     end
     _G._config_reload_timer = vim.uv.new_timer()
-    _G._config_reload_timer:start(300, 0, vim.schedule_wrap(function()
-      _G._config_reload_timer:close()
-      _G._config_reload_timer = nil
-      _G.ReloadConfig()
-    end))
+    _G._config_reload_timer:start(
+      300,
+      0,
+      vim.schedule_wrap(function()
+        _G._config_reload_timer:close()
+        _G._config_reload_timer = nil
+        _G.ReloadConfig()
+      end)
+    )
   end)
 )
 
